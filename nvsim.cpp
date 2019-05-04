@@ -67,6 +67,9 @@ public:
       rbufq.push(*this);
       rbuf_sum += n512 * 512;
       ch_stat[ch] = 0;
+    } else if (type == PCIE_DONE) {
+      std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      pcie_stat = 0;
     }
     sub();
   }
@@ -132,6 +135,7 @@ sub()
 	rbufq.pop();
 	ev.tim = eloop->sim_us + ev.n512 * 512 * 8 / PCIE_LANE / 1024;
 	ev.type = PCIE_DONE;
+	pcie_stat = 1;
 	eloop->add(ev);
       }
     }
