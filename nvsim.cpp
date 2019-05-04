@@ -18,7 +18,7 @@
 #define TRUS (60)
 
 #define NAND_CH_MHZ (400)
-#define PCIE_LANE (16) // Gen3
+#define PCIE_LANE (1) // Gen3
 
 #define RBUF_CAP (16 * 1024 * 1024)
 
@@ -125,16 +125,18 @@ bool operator<(const Event &event1, const Event event2) {
 void
 sub()
 {
+  //std::cout << "sub " << __LINE__ << std::endl;
     if (pcie_stat == 0) {
-      if (rbuf_sum > 0) {
+      if (rbufq.size() > 0) {
 	Event ev = rbufq.front();
 	rbufq.pop();
-	ev.tim = eloop->sim_us + ev.n512 * 512 / PCIE_LANE / 8 / 1024;
+	ev.tim = eloop->sim_us + ev.n512 * 512 * 8 / PCIE_LANE / 1024;
 	ev.type = PCIE_DONE;
 	eloop->add(ev);
       }
     }
     
+    //std::cout << "sub " << __LINE__ << std::endl;
     for (int i_ch=0; i_ch<N_CH; i_ch++) {
       if (ch_stat[i_ch] == 0) {
 	if (chq[i_ch].size() > 0) {
@@ -151,6 +153,7 @@ sub()
 	}
       }
     }
+    //std::cout << "sub " << __LINE__ << std::endl;
     for (int i_ch=0; i_ch<N_CH; i_ch++) {
       for (int i_die=0; i_die<N_DIE; i_die++) {
 	if (die_stat[i_ch][i_die] == 0) {
@@ -165,6 +168,7 @@ sub()
 	}
       }
     }
+    //std::cout << "sub " << __LINE__ << std::endl;
 
 }
 
