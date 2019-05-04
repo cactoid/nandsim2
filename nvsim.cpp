@@ -21,8 +21,8 @@
 class Eloop;
 class Event;
 
-typedef std::vector<Event> nandq;
-nandq nq[N_CH][N_DIE];
+typedef std::vector<Event> dieq_t;
+dieq_t dieq[N_CH][N_DIE];
 int pcie_stat = 0;
 int ch_stat[N_CH];
 int die_stat[N_DIE];
@@ -30,6 +30,7 @@ int die_stat[N_DIE];
 class Rbuf {
 public:
   int sum;
+  int cap = 16 * 1024 * 1024;
   Rbuf() {
     sum = 0;
   }
@@ -41,6 +42,9 @@ public:
     Event event = rbuf.pop_first();
     sum -= event.n512 * 512;
     return event;
+  }
+  int remain() {
+    return cap - sum;
   }
 };
 
@@ -58,13 +62,14 @@ public:
       std::cout << "NVME_CMD_REQ " << tim << "us "<< lba << " " << n512 << std::endl;
       int die = lba % N_DIE;
       int ch = (lba / N_DIE) % N_CH;
-      nq[ch][die].push_back(*this);
+      dieq[ch][die].push_back(*this);
     } else if (type == NAND_READ_DONE) {
       std::cout << "NAND_READ_DONE " << tim << "us "<< lba << " " << n512 << std::endl;
       die_stat[i_ch][i_die] = 0;
       cq[ch].push_back(*this);
     } else if (type == NAND_CH_DONE) {
       std::cout << "NAND_CH_DONE " << tim << "us "<< lba << " " << n512 << std::endl;
+      rbuf.add(ev);
       ch_stat[i_ch] = 0;
     }
 
@@ -85,7 +90,6 @@ public:
 	    Event ev = cq[i_ch].pop_front();
 	    ev.tim = eloop->sim_us + n512 * 512 / NAND_CH_MHZ;
 	    ev.type = NAND_CH_DONE;
-	    rbuf.add ;
 	    eloop->add(ev);
 	  }
 	}
@@ -94,9 +98,9 @@ public:
     for (int i_ch=0; i_ch<N_CH; i_ch++) {
       for (int i_die=0; i_die<N_DIE; i_die++) {
 	if (die_stat[i_ch][i_die] == 0) {
-	  if (nq[i_ch][i_die].size() > 0) {
+	  if (dieq[i_ch][i_die].size() > 0) {
 	    die_stat[i_ch][i_die] = 1;
-	    Event ev = nq[i_ch][i_die].pop_front();
+	    Event ev = dieq[i_ch][i_die].pop_front();
 	    ev.tim = eloop->sim_us + TRUS;
 	    ev.type = NAND_READ_DONE;
 	    eloop->add(ev);
@@ -104,7 +108,6 @@ public:
 	}
       }
     }
-    run_nq();
   }
 };
 
