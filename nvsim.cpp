@@ -39,8 +39,11 @@ rbufq_t rbufq;
 
 void sub();
 
+int id_cnt = 0;
+
 class Event {
 public:
+  int id;
   int tim;
   int type;
   int n512;
@@ -49,20 +52,20 @@ public:
   int ch;
   Event(int tim) {
     this->tim = tim;
+    this->id = id_cnt++;
   };
   void run() {
     if (type == NVME_CMD_REQ) {
-      std::cout << "NVME_CMD_REQ " << tim << "us "<< lba << " " << n512 << std::endl;
+      std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       die = lba % N_DIE;
       ch = (lba / N_DIE) % N_CH;
       dieq[ch][die].push(*this);
-      std::cout << "sub" << ch << "." << die << std::endl;
     } else if (type == NAND_READ_DONE) {
-      std::cout << "NAND_READ_DONE " << tim << "us "<< lba << " " << n512 << std::endl;
+      std::cout << "NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       die_stat[ch][die] = 0;
       chq[ch].push(*this);
     } else if (type == NAND_CH_DONE) {
-      std::cout << "NAND_CH_DONE " << tim << "us "<< lba << " " << n512 << std::endl;
+      std::cout << "NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       rbufq.push(*this);
       rbuf_sum += n512 * 512;
       ch_stat[ch] = 0;
@@ -83,6 +86,7 @@ public:
     sim_us = 0;
   }
   void add(Event event) {
+    std::cout << "ADD :" << event.tim << " " << event.type << " " << eq.size() << std::endl;
     eq.push(event);
   }
   void next_req() {
@@ -99,6 +103,7 @@ public:
       Event event = eq.top();
       event.run();
       eq.pop();
+      std::cout << "pop:" << eq.size() << std::endl;
       return true;
     }
   }
@@ -113,7 +118,7 @@ Eloop *eloop;
 
 
 bool operator<(const Event &event1, const Event event2) {
-  return event1.tim < event2.tim;
+  return event1.tim > event2.tim;
 }
 
 void
@@ -147,7 +152,6 @@ sub()
       for (int i_die=0; i_die<N_DIE; i_die++) {
 	if (die_stat[i_ch][i_die] == 0) {
 	  if (dieq[i_ch][i_die].size() > 0) {
-	    std::cout << "sub3" << std::endl;
 	    die_stat[i_ch][i_die] = 1;
 	    Event ev = dieq[i_ch][i_die].front();
 	    dieq[i_ch][i_die].pop();
@@ -160,13 +164,6 @@ sub()
     }
 
 }
-
-void
-next_req()
-{
-  eloop->next_req();
-}
-
 
 
 int
