@@ -10,7 +10,7 @@
 #define NAND_CH_DONE 5
 #define PCIE_DONE 6
 
-#define QD 16
+#define QD 4
 
 #define N_DIE 4
 #define N_CH 8
@@ -57,15 +57,13 @@ public:
   void run() {
     if (type == NVME_CMD_REQ) {
       std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
-      die = lba % N_DIE;
-      ch = (lba / N_DIE) % N_CH;
       dieq[ch][die].push(*this);
     } else if (type == NAND_READ_DONE) {
-      std::cout << "NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       die_stat[ch][die] = 0;
       chq[ch].push(*this);
     } else if (type == NAND_CH_DONE) {
-      std::cout << "NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      std::cout << id << " NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       rbufq.push(*this);
       rbuf_sum += n512 * 512;
       ch_stat[ch] = 0;
@@ -86,13 +84,15 @@ public:
     sim_us = 0;
   }
   void add(Event event) {
-    std::cout << "ADD :" << event.tim << " " << event.type << " " << eq.size() << std::endl;
+    std::cout << "ADD :" << event.tim << " " << event.type << " " << event.ch << " " << event.die << " " << eq.size() << std::endl;
     eq.push(event);
   }
   void next_req() {
     Event ev(sim_us + 10);
     ev.type = NVME_CMD_REQ;
     ev.lba = rand() % 16384;
+    ev.die = ev.lba % N_DIE;
+    ev.ch = (ev.lba / N_DIE) % N_CH;
     ev.n512 = rand() & 0x1 ? 1 : 8;
     add(ev);
   }
@@ -101,9 +101,10 @@ public:
       return false;
     else {
       Event event = eq.top();
+      sim_us = event.tim;
       event.run();
       eq.pop();
-      std::cout << "pop:" << eq.size() << std::endl;
+      //std::cout << "pop:" << eq.size() << std::endl;
       return true;
     }
   }
