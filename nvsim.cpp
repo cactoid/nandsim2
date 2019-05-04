@@ -84,7 +84,7 @@ public:
     sim_us = 0;
   }
   void add(Event event) {
-    std::cout << "ADD :" << event.tim << " " << event.type << " " << event.ch << " " << event.die << " " << eq.size() << std::endl;
+    std::cout << "ADD :" << event.tim << " " << event.type << " ch=" << event.ch << " die=" << event.die << " " << eq.size() << std::endl;
     eq.push(event);
   }
   void next_req() {
@@ -145,6 +145,8 @@ sub()
 	    ev.tim = eloop->sim_us + ev.n512 * 512 / NAND_CH_MHZ;
 	    ev.type = NAND_CH_DONE;
 	    eloop->add(ev);
+	  } else {
+	    std::cout << "full" << std::endl;
 	  }
 	}
       }
