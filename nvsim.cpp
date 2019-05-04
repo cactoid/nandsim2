@@ -56,6 +56,7 @@ public:
       die = lba % N_DIE;
       ch = (lba / N_DIE) % N_CH;
       dieq[ch][die].push(*this);
+      std::cout << "sub" << ch << "." << die << std::endl;
     } else if (type == NAND_READ_DONE) {
       std::cout << "NAND_READ_DONE " << tim << "us "<< lba << " " << n512 << std::endl;
       die_stat[ch][die] = 0;
@@ -146,6 +147,7 @@ sub()
       for (int i_die=0; i_die<N_DIE; i_die++) {
 	if (die_stat[i_ch][i_die] == 0) {
 	  if (dieq[i_ch][i_die].size() > 0) {
+	    std::cout << "sub3" << std::endl;
 	    die_stat[i_ch][i_die] = 1;
 	    Event ev = dieq[i_ch][i_die].front();
 	    dieq[i_ch][i_die].pop();
