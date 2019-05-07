@@ -13,16 +13,16 @@
 #define QD 128*4
 
 #define N_DIE 4
-#define N_CH 32
+#define N_CH 16
 
 #define REQCNT (1024*4*4*4)
 
-#define TRUS (20)
+#define TRUS (10)
 
-#define NAND_CH_MHZ (800)
+#define NAND_CH_MHZ (1200)
 #define PCIE_LANE (32) // Gen3
 
-#define RBUF_CAP (16 * 1024 * 1024 * 8)
+#define RBUF_CAP (16 * 1024 * 1024 * 8 * 4)
 
 class Event;
 
@@ -39,6 +39,11 @@ int rbuf_sum = 0;
 rbufq_t rbufq;
 int reqcnt = 0;
 
+
+int div_ceil(int x, int y)
+{
+  return (x + y - 1) / y;
+}
 
 void sub();
 void next_req();
@@ -142,7 +147,7 @@ sub()
       if (rbufq.size() > 0) {
 	Event ev = rbufq.front();
 	rbufq.pop();
-	ev.tim = eloop->sim_ns + ev.n512 * 512 / PCIE_LANE;
+	ev.tim = eloop->sim_ns + div_ceil(ev.n512 * 512,PCIE_LANE);
 	ev.type = PCIE_DONE;
 	pcie_stat = 1;
 	eloop->add(ev);
@@ -157,7 +162,7 @@ sub()
 	  if (RBUF_CAP - rbuf_sum > ev.n512 * 512) {
 	    ch_stat[i_ch] = 1;
 	    chq[i_ch].pop();
-	    ev.tim = eloop->sim_ns + ev.n512 * 512 / NAND_CH_MHZ * 1000;
+	    ev.tim = eloop->sim_ns + div_ceil(ev.n512 * 512 * 1000, NAND_CH_MHZ);
 	    ev.type = NAND_CH_DONE;
 	    eloop->add(ev);
 	  } else {
@@ -201,7 +206,7 @@ main()
   while (eloop->run())
     ;
   std::cout << "Paallel Die Read Limit : " << N_DIE * N_CH * 4096.0 / TRUS / 1000 << std::endl;
-  std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ << std::endl;
+  std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ / 1000.0 << std::endl;
   std::cout << "PCIe Limit : " << PCIE_LANE << std::endl;
   std::cout << "Actual GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
 }
