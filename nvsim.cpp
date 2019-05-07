@@ -209,4 +209,5 @@ main()
   std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ / 1000.0 << std::endl;
   std::cout << "PCIe Limit : " << PCIE_LANE << std::endl;
   std::cout << "Actual GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
+  std::cout << "MIOPS : " << (double)REQCNT*1024 / eloop->sim_ns << std::endl;
 }
