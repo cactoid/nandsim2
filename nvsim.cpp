@@ -10,10 +10,12 @@
 #define NAND_CH_DONE 5
 #define PCIE_DONE 6
 
-#define QD 4
+#define QD 32
 
 #define N_DIE 4
 #define N_CH 8
+
+#define REQCNT (1024*4)
 
 #define TRUS (60)
 
@@ -35,9 +37,11 @@ int ch_stat[N_CH];
 int die_stat[N_CH][N_DIE];
 int rbuf_sum = 0;
 rbufq_t rbufq;
+int reqcnt = 0;
 
 
 void sub();
+void next_req();
 
 int id_cnt = 0;
 
@@ -70,6 +74,9 @@ public:
     } else if (type == PCIE_DONE) {
       std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       pcie_stat = 0;
+      if (reqcnt < REQCNT)
+	next_req();
+	
     }
     sub();
   }
@@ -91,12 +98,14 @@ public:
     eq.push(event);
   }
   void next_req() {
+    reqcnt ++ ;
     Event ev(sim_us + 10);
     ev.type = NVME_CMD_REQ;
     ev.lba = rand() % 16384;
     ev.die = ev.lba % N_DIE;
     ev.ch = (ev.lba / N_DIE) % N_CH;
-    ev.n512 = rand() & 0x1 ? 1 : 8;
+    //ev.n512 = rand() & 0x1 ? 1 : 8;
+    ev.n512 = 8;
     add(ev);
   }
   bool run() {
@@ -176,6 +185,11 @@ sub()
 
 }
 
+void
+next_req()
+{
+  eloop->next_req();
+}
 
 int
 main()
@@ -186,4 +200,5 @@ main()
     eloop->next_req();
   while (eloop->run())
     ;
+  std::cout << "MB/s : " << REQCNT * 4096.0 / eloop->sim_us << std::endl;
 }
