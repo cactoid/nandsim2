@@ -20,7 +20,7 @@
 #define TRUS (60)
 
 #define NAND_CH_MHZ (400)
-#define PCIE_LANE (1) // Gen3
+#define PCIE_LANE (16) // Gen3
 
 #define RBUF_CAP (16 * 1024 * 1024)
 
@@ -89,9 +89,9 @@ class Eloop
 {
   std::priority_queue<Event> eq;
 public:
-  unsigned int sim_us;
+  unsigned int sim_ns;
   Eloop() {
-    sim_us = 0;
+    sim_ns = 0;
   }
   void add(Event event) {
     std::cout << "ADD :" << event.tim << " " << event.type << " ch=" << event.ch << " die=" << event.die << " " << eq.size() << std::endl;
@@ -99,7 +99,7 @@ public:
   }
   void next_req() {
     reqcnt ++ ;
-    Event ev(sim_us + 10);
+    Event ev(sim_ns + 100);
     ev.type = NVME_CMD_REQ;
     ev.lba = rand() % 16384;
     ev.die = ev.lba % N_DIE;
@@ -113,7 +113,7 @@ public:
       return false;
     else {
       Event event = eq.top();
-      sim_us = event.tim;
+      sim_ns = event.tim;
       event.run();
       eq.pop();
       //std::cout << "pop:" << eq.size() << std::endl;
@@ -142,7 +142,7 @@ sub()
       if (rbufq.size() > 0) {
 	Event ev = rbufq.front();
 	rbufq.pop();
-	ev.tim = eloop->sim_us + ev.n512 * 512 * 8 / PCIE_LANE / 1024;
+	ev.tim = eloop->sim_ns + ev.n512 * 512 * 8 / PCIE_LANE;
 	ev.type = PCIE_DONE;
 	pcie_stat = 1;
 	eloop->add(ev);
@@ -157,7 +157,7 @@ sub()
 	  if (RBUF_CAP - rbuf_sum > ev.n512 * 512) {
 	    ch_stat[i_ch] = 1;
 	    chq[i_ch].pop();
-	    ev.tim = eloop->sim_us + ev.n512 * 512 / NAND_CH_MHZ;
+	    ev.tim = eloop->sim_ns + ev.n512 * 512 / NAND_CH_MHZ * 1000;
 	    ev.type = NAND_CH_DONE;
 	    eloop->add(ev);
 	  } else {
@@ -174,7 +174,7 @@ sub()
 	    die_stat[i_ch][i_die] = 1;
 	    Event ev = dieq[i_ch][i_die].front();
 	    dieq[i_ch][i_die].pop();
-	    ev.tim = eloop->sim_us + TRUS;
+	    ev.tim = eloop->sim_ns + TRUS * 1000;
 	    ev.type = NAND_READ_DONE;
 	    eloop->add(ev);
 	  }
@@ -200,5 +200,5 @@ main()
     eloop->next_req();
   while (eloop->run())
     ;
-  std::cout << "MB/s : " << REQCNT * 4096.0 / eloop->sim_us << std::endl;
+  std::cout << "GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
 }
