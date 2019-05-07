@@ -10,19 +10,19 @@
 #define NAND_CH_DONE 5
 #define PCIE_DONE 6
 
-#define QD 32
+#define QD 128*4
 
 #define N_DIE 4
 #define N_CH 8
 
-#define REQCNT (1024*4)
+#define REQCNT (1024*4*4)
 
-#define TRUS (60)
+#define TRUS (30)
 
 #define NAND_CH_MHZ (400)
 #define PCIE_LANE (16) // Gen3
 
-#define RBUF_CAP (16 * 1024 * 1024)
+#define RBUF_CAP (16 * 1024 * 1024 * 8)
 
 class Event;
 
@@ -60,19 +60,19 @@ public:
   };
   void run() {
     if (type == NVME_CMD_REQ) {
-      std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      //std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       dieq[ch][die].push(*this);
     } else if (type == NAND_READ_DONE) {
-      std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      //std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       die_stat[ch][die] = 0;
       chq[ch].push(*this);
     } else if (type == NAND_CH_DONE) {
-      std::cout << id << " NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      //std::cout << id << " NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       rbufq.push(*this);
       rbuf_sum += n512 * 512;
       ch_stat[ch] = 0;
     } else if (type == PCIE_DONE) {
-      std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      //std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       pcie_stat = 0;
       if (reqcnt < REQCNT)
 	next_req();
@@ -94,7 +94,7 @@ public:
     sim_ns = 0;
   }
   void add(Event event) {
-    std::cout << "ADD :" << event.tim << " " << event.type << " ch=" << event.ch << " die=" << event.die << " " << eq.size() << std::endl;
+    //std::cout << "ADD :" << event.tim << " " << event.type << " ch=" << event.ch << " die=" << event.die << " " << eq.size() << std::endl;
     eq.push(event);
   }
   void next_req() {
@@ -200,5 +200,8 @@ main()
     eloop->next_req();
   while (eloop->run())
     ;
-  std::cout << "GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
+  std::cout << "Paallel Die Read Limit : " << N_DIE * N_CH * 4096.0 / TRUS / 1000 << std::endl;
+  std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ << std::endl;
+  std::cout << "PCIe Limit : " << PCIE_LANE << std::endl;
+  std::cout << "Actual GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
 }
