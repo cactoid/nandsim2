@@ -142,7 +142,7 @@ sub()
       if (rbufq.size() > 0) {
 	Event ev = rbufq.front();
 	rbufq.pop();
-	ev.tim = eloop->sim_ns + ev.n512 * 512 * 8 / PCIE_LANE;
+	ev.tim = eloop->sim_ns + ev.n512 * 512 / PCIE_LANE;
 	ev.type = PCIE_DONE;
 	pcie_stat = 1;
 	eloop->add(ev);
