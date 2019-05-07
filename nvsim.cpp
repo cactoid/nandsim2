@@ -10,19 +10,23 @@
 #define NAND_CH_DONE 5
 #define PCIE_DONE 6
 
-#define QD 128*4
+#define QD 128
+//#define QD 16
 
 #define N_DIE 4
 #define N_CH 16
 
-#define REQCNT (1024*4*4*4)
+#define BLK_SIZE (4096)
+//#define REQCNT (1024*4*4*4)
+#define REQCNT (128)
 
 #define TRUS (10)
 
 #define NAND_CH_MHZ (1200)
 #define PCIE_LANE (32) // Gen3
 
-#define RBUF_CAP (16 * 1024 * 1024 * 8 * 4)
+#define RBUF_CAP (16 * 1024 * 1024 * 8*2)
+//#define RBUF_CAP (16 * 1024 * 1024*1)
 
 class Event;
 
@@ -32,6 +36,9 @@ typedef std::queue<Event> chq_t;
 typedef std::queue<Event> rbufq_t;
 dieq_t chq[N_CH];
 dieq_t dieq[N_CH][N_DIE];
+int diebuf[N_CH][N_DIE];
+//std::vector<Event> diebuf_dep;
+Event *diebuf_dep[N_CH][N_DIE];
 int pcie_stat = 0;
 int ch_stat[N_CH];
 int die_stat[N_CH][N_DIE];
@@ -48,7 +55,12 @@ int div_ceil(int x, int y)
 void sub();
 void next_req();
 
+int done_cmd_req = 0;
+int done_nand_read0 = 0;
+int done_nand_read = 0;
+int done_nand_ch = 0;
 int id_cnt = 0;
+int done_cnt = 0;
 
 class Event {
 public:
@@ -59,6 +71,7 @@ public:
   int lba;
   int die;
   int ch;
+  Event *depend;
   Event(int tim) {
     this->tim = tim;
     this->id = id_cnt++;
@@ -67,17 +80,29 @@ public:
     if (type == NVME_CMD_REQ) {
       //std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
       dieq[ch][die].push(*this);
+      done_cmd_req ++;
     } else if (type == NAND_READ_DONE) {
-      //std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
-      die_stat[ch][die] = 0;
-      chq[ch].push(*this);
+      std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      done_nand_read0 ++;
+      if (diebuf[ch][die] == 1) {
+	std::cout << "depend add " << id << " " << ch <<" "<< die << std::endl;
+	diebuf[ch][die] |= 2;
+	diebuf_dep[ch][die] = this;
+      } else {
+	diebuf[ch][die] = 1;
+	die_stat[ch][die] = 0;
+	chq[ch].push(*this);
+	done_nand_read ++;
+      }
     } else if (type == NAND_CH_DONE) {
-      //std::cout << id << " NAND_CH_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      //std::cout << id << " NAND_CH_DONE " << tim << "us ch="<< ch << " die=" << die << " " << n512 << std::endl;
       rbufq.push(*this);
       rbuf_sum += n512 * 512;
       ch_stat[ch] = 0;
+      done_nand_ch ++;
     } else if (type == PCIE_DONE) {
       //std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+      done_cnt ++;
       pcie_stat = 0;
       if (reqcnt < REQCNT)
 	next_req();
@@ -110,7 +135,7 @@ public:
     ev.die = ev.lba % N_DIE;
     ev.ch = (ev.lba / N_DIE) % N_CH;
     //ev.n512 = rand() & 0x1 ? 1 : 8;
-    ev.n512 = 8;
+    ev.n512 = BLK_SIZE / 512;
     add(ev);
   }
   bool run() {
@@ -160,13 +185,21 @@ sub()
 	if (chq[i_ch].size() > 0) {
 	  Event ev = chq[i_ch].front();
 	  if (RBUF_CAP - rbuf_sum > ev.n512 * 512) {
+	    //std::cout << "go " << ev.id << std::endl;
 	    ch_stat[i_ch] = 1;
 	    chq[i_ch].pop();
+	    if (diebuf[ev.ch][ev.die] & 0x2) {
+	      std::cout << "ok" << ev.ch << " " << ev.die << std::endl;
+	      Event *e = diebuf_dep[ev.ch][ev.die];
+	      std::cout << e->id << " " << e->ch << " " << e->die << " " << e->n512 <<std::endl;
+	      e->run();
+	    }
+	    diebuf[ev.ch][ev.die] = 0;
 	    ev.tim = eloop->sim_ns + div_ceil(ev.n512 * 512 * 1000, NAND_CH_MHZ);
 	    ev.type = NAND_CH_DONE;
 	    eloop->add(ev);
 	  } else {
-	    std::cout << "full" << std::endl;
+	    std::cout << "full " << ev.id << std::endl;
 	  }
 	}
       }
@@ -205,9 +238,15 @@ main()
     eloop->next_req();
   while (eloop->run())
     ;
-  std::cout << "Paallel Die Read Limit : " << N_DIE * N_CH * 4096.0 / TRUS / 1000 << std::endl;
+  std::cout << "Paallel Die Read Limit : " << N_DIE * N_CH * 4096 / TRUS / 1000 << std::endl;
   std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ / 1000.0 << std::endl;
   std::cout << "PCIe Limit : " << PCIE_LANE << std::endl;
-  std::cout << "Actual GB/s : " << REQCNT * 4096.0 / eloop->sim_ns << std::endl;
+  std::cout << "Actual GB/s : " << REQCNT * BLK_SIZE / eloop->sim_ns << std::endl;
   std::cout << "MIOPS : " << (double)REQCNT*1024 / eloop->sim_ns << std::endl;
+  std::cout << "RBUF MB : " << RBUF_CAP / 1024 / 1024 << std::endl;
+  std::cout << "done_cmd_req : " << done_cmd_req<< std::endl;
+  std::cout << "done_nand_read : " << done_nand_read<< std::endl;
+  std::cout << "done_nand_read0 : " << done_nand_read0<< std::endl;
+  std::cout << "done_nand_ch : " << done_nand_ch<< std::endl;
+  std::cout << "done_cnt : " << done_cnt<< std::endl;
 }
