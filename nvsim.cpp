@@ -13,14 +13,14 @@
 #define QD 128*4
 
 #define N_DIE 4
-#define N_CH 8
+#define N_CH 32
 
-#define REQCNT (1024*4*4)
+#define REQCNT (1024*4*4*4)
 
-#define TRUS (30)
+#define TRUS (20)
 
-#define NAND_CH_MHZ (400)
-#define PCIE_LANE (16) // Gen3
+#define NAND_CH_MHZ (800)
+#define PCIE_LANE (32) // Gen3
 
 #define RBUF_CAP (16 * 1024 * 1024 * 8)
 
