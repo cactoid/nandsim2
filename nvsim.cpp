@@ -28,17 +28,34 @@
 #define RBUF_CAP (16 * 1024 * 1024 * 8*2)
 //#define RBUF_CAP (16 * 1024 * 1024*1)
 
-class Event;
+typedef struct {
+  int id;
+  int tim;
+  int type;
+  int n512;
+  int lba;
+  int die;
+  int ch;
+} event_t;
+
+class MyCompare {
+public:
+  template<typename T>
+  bool operator()(T *a, T *b) {
+    return (*a) < (*b);
+  }
+};
 
 
+typedef event_t * Event;
 typedef std::queue<Event> dieq_t;
 typedef std::queue<Event> chq_t;
 typedef std::queue<Event> rbufq_t;
 dieq_t chq[N_CH];
 dieq_t dieq[N_CH][N_DIE];
 int diebuf[N_CH][N_DIE];
-//std::vector<Event> diebuf_dep;
-Event *diebuf_dep[N_CH][N_DIE];
+std::vector<Event> diebuf_dep;
+//Event *diebuf_dep[N_CH][N_DIE];
 int pcie_stat = 0;
 int ch_stat[N_CH];
 int die_stat[N_CH][N_DIE];
@@ -62,62 +79,11 @@ int done_nand_ch = 0;
 int id_cnt = 0;
 int done_cnt = 0;
 
-class Event {
-public:
-  int id;
-  int tim;
-  int type;
-  int n512;
-  int lba;
-  int die;
-  int ch;
-  Event *depend;
-  Event(int tim) {
-    this->tim = tim;
-    this->id = id_cnt++;
-  };
-  void run() {
-    if (type == NVME_CMD_REQ) {
-      //std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
-      dieq[ch][die].push(*this);
-      done_cmd_req ++;
-    } else if (type == NAND_READ_DONE) {
-      std::cout << id << " NAND_READ_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
-      done_nand_read0 ++;
-      if (diebuf[ch][die] == 1) {
-	std::cout << "depend add " << id << " " << ch <<" "<< die << std::endl;
-	diebuf[ch][die] |= 2;
-	diebuf_dep[ch][die] = this;
-      } else {
-	diebuf[ch][die] = 1;
-	die_stat[ch][die] = 0;
-	chq[ch].push(*this);
-	done_nand_read ++;
-      }
-    } else if (type == NAND_CH_DONE) {
-      //std::cout << id << " NAND_CH_DONE " << tim << "us ch="<< ch << " die=" << die << " " << n512 << std::endl;
-      rbufq.push(*this);
-      rbuf_sum += n512 * 512;
-      ch_stat[ch] = 0;
-      done_nand_ch ++;
-    } else if (type == PCIE_DONE) {
-      //std::cout << id << " PCIE_DONE " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
-      done_cnt ++;
-      pcie_stat = 0;
-      if (reqcnt < REQCNT)
-	next_req();
-	
-    }
-    sub();
-  }
-};
-
-
 
 
 class Eloop
 {
-  std::priority_queue<Event> eq;
+  std::priority_queue<Event, std::vector<Event>, MyCompare> eq;
 public:
   unsigned int sim_ns;
   Eloop() {
@@ -129,22 +95,46 @@ public:
   }
   void next_req() {
     reqcnt ++ ;
-    Event ev(sim_ns + 100);
-    ev.type = NVME_CMD_REQ;
-    ev.lba = rand() % 16384;
-    ev.die = ev.lba % N_DIE;
-    ev.ch = (ev.lba / N_DIE) % N_CH;
-    //ev.n512 = rand() & 0x1 ? 1 : 8;
-    ev.n512 = BLK_SIZE / 512;
+    Event ev = (Event)malloc(sizeof(event_t));
+    ev->tim = sim_ns + 100;
+    ev->id = id_cnt++;
+    ev->type = NVME_CMD_REQ;
+    ev->lba = rand() % 16384;
+    ev->die = ev->lba % N_DIE;
+    ev->ch = (ev->lba / N_DIE) % N_CH;
+    //ev->n512 = rand() & 0x1 ? 1 : 8;
+    ev->n512 = BLK_SIZE / 512;
     add(ev);
   }
   bool run() {
     if (eq.empty())
       return false;
     else {
-      Event event = eq.top();
-      sim_ns = event.tim;
-      event.run();
+      Event ev = eq.top();
+      sim_ns = ev->tim;
+
+      if (ev->type == NVME_CMD_REQ) {
+	//std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
+	dieq[ev->ch][ev->die].push(ev);
+	done_cmd_req ++;
+      } else if (ev->type == NAND_READ_DONE) {
+	done_nand_read0 ++;
+	die_stat[ev->ch][ev->die] = 0;
+	chq[ev->ch].push(ev);
+	done_nand_read ++;
+      } else if (ev->type == NAND_CH_DONE) {
+	rbufq.push(ev);
+	rbuf_sum += ev->n512 * 512;
+	ch_stat[ev->ch] = 0;
+	done_nand_ch ++;
+      } else if (ev->type == PCIE_DONE) {
+	done_cnt ++;
+	pcie_stat = 0;
+	if (reqcnt < REQCNT)
+	  next_req();
+      }
+      sub();
+
       eq.pop();
       //std::cout << "pop:" << eq.size() << std::endl;
       return true;
@@ -160,7 +150,7 @@ Eloop *eloop;
 
 
 
-bool operator<(const Event &event1, const Event event2) {
+bool operator<(event_t event1, event_t event2) {
   return event1.tim > event2.tim;
 }
 
@@ -172,8 +162,8 @@ sub()
       if (rbufq.size() > 0) {
 	Event ev = rbufq.front();
 	rbufq.pop();
-	ev.tim = eloop->sim_ns + div_ceil(ev.n512 * 512,PCIE_LANE);
-	ev.type = PCIE_DONE;
+	ev->tim = eloop->sim_ns + div_ceil(ev->n512 * 512,PCIE_LANE);
+	ev->type = PCIE_DONE;
 	pcie_stat = 1;
 	eloop->add(ev);
       }
@@ -184,22 +174,15 @@ sub()
       if (ch_stat[i_ch] == 0) {
 	if (chq[i_ch].size() > 0) {
 	  Event ev = chq[i_ch].front();
-	  if (RBUF_CAP - rbuf_sum > ev.n512 * 512) {
-	    //std::cout << "go " << ev.id << std::endl;
+	  if (RBUF_CAP - rbuf_sum > ev->n512 * 512) {
+	    //std::cout << "go " << ev->id << std::endl;
 	    ch_stat[i_ch] = 1;
 	    chq[i_ch].pop();
-	    if (diebuf[ev.ch][ev.die] & 0x2) {
-	      std::cout << "ok" << ev.ch << " " << ev.die << std::endl;
-	      Event *e = diebuf_dep[ev.ch][ev.die];
-	      std::cout << e->id << " " << e->ch << " " << e->die << " " << e->n512 <<std::endl;
-	      e->run();
-	    }
-	    diebuf[ev.ch][ev.die] = 0;
-	    ev.tim = eloop->sim_ns + div_ceil(ev.n512 * 512 * 1000, NAND_CH_MHZ);
-	    ev.type = NAND_CH_DONE;
+	    ev->tim = eloop->sim_ns + div_ceil(ev->n512 * 512 * 1000, NAND_CH_MHZ);
+	    ev->type = NAND_CH_DONE;
 	    eloop->add(ev);
 	  } else {
-	    std::cout << "full " << ev.id << std::endl;
+	    std::cout << "full " << ev->id << std::endl;
 	  }
 	}
       }
@@ -212,8 +195,8 @@ sub()
 	    die_stat[i_ch][i_die] = 1;
 	    Event ev = dieq[i_ch][i_die].front();
 	    dieq[i_ch][i_die].pop();
-	    ev.tim = eloop->sim_ns + TRUS * 1000;
-	    ev.type = NAND_READ_DONE;
+	    ev->tim = eloop->sim_ns + TRUS * 1000;
+	    ev->type = NAND_READ_DONE;
 	    eloop->add(ev);
 	  }
 	}
@@ -232,6 +215,7 @@ next_req()
 int
 main()
 {
+  diebuf_dep.resize(8*4);
   eloop = new Eloop();
 
   for (int qd=0; qd<QD; qd++)
