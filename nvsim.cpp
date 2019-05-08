@@ -18,14 +18,14 @@
 
 #define BLK_SIZE (512)
 //#define REQCNT (1024*4*4*4)
-#define REQCNT (128*1024*2)
+#define REQCNT (128*1024*2*4)
 
 #define TRUS (20)
 
 #define NAND_CH_MHZ (1200)
 #define PCIE_LANE (8) // Gen3
 
-#define RBUF_CAP (16ULL * 1024 * 4)
+#define RBUF_CAP (16ULL * 1024 * 4 * 16*16)
 //#define RBUF_CAP (16 * 1024 * 1024*1)
 
 typedef struct {
@@ -78,6 +78,7 @@ void sub();
 void next_req();
 
 int done_cmd_req = 0;
+int cmd_req_pop = 0;
 int done_nand_read0 = 0;
 int done_nand_read = 0;
 int done_nand_ch = 0;
@@ -108,8 +109,9 @@ public:
     ev->die = ev->lba % N_DIE;
     ev->ch = (ev->lba / N_DIE) % N_CH;
     //ev->n512 = rand() & 0x1 ? 1 : 8;
-    ev->n512 = (ev->id % 256 > 128) ? 8 : 1;
-    //ev->n512 = BLK_SIZE / 512;
+    ev->n512 = ((ev->id % 256) > 250) ? 8 : 1;
+    //ev->n512 = 1;
+    //ev->n512 = BLK_SIZE / 512;ap
     add(ev);
   }
   bool run() {
@@ -119,8 +121,8 @@ public:
       Event ev = eq.top();
       sim_ns = ev->tim;
 
+      std::cout << ev->id << " type=" << ev->type << " " << ev->tim << "us "<< ev->ch << " " << ev->die << " " << ev->n512 << std::endl;
       if (ev->type == NVME_CMD_REQ) {
-	//std::cout << id << " NVME_CMD_REQ " << tim << "us "<< ch << " " << die << " " << n512 << std::endl;
 	dieq[ev->ch][ev->die].push(ev);
 	done_cmd_req ++;
       } else if (ev->type == NAND_READ_DONE) {
@@ -183,7 +185,7 @@ sub()
       if (ch_stat[i_ch] == 0) {
 	if (chq[i_ch].size() > 0) {
 	  Event ev = chq[i_ch].front();
-	  if (RBUF_CAP - rbuf_sum > ev->n512 * 512) {
+	  if (RBUF_CAP - rbuf_sum >= ev->n512 * 512) {
 	    //std::cout << "go " << ev->id << std::endl;
 	    diebuf_q[ev->ch][ev->die].pop();
 	    if (diebuf_q[ev->ch][ev->die].size() < BUF_TH)
@@ -208,6 +210,7 @@ sub()
 	    die_stat[i_ch][i_die] = 1;
 	    Event ev = dieq[i_ch][i_die].front();
 	    dieq[i_ch][i_die].pop();
+	    cmd_req_pop++;
 	    ev->tim = eloop->sim_ns + TRUS * 1000;
 	    ev->type = NAND_READ_DONE;
 	    eloop->add(ev);
@@ -232,8 +235,13 @@ main()
 
   for (int qd=0; qd<QD; qd++)
     eloop->next_req();
+#if 1
   while (eloop->run())
     ;
+#else
+  while(done_cnt < REQCNT)
+    eloop->run();
+#endif
   std::cout << "Paallel Die Read Limit : " << N_DIE * N_CH * 4096 / TRUS / 1000 << std::endl;
   std::cout << "Paallel NAND Ch Limit : " << N_CH * NAND_CH_MHZ / 1000.0 << std::endl;
   std::cout << "PCIe Limit : " << PCIE_LANE << std::endl;
@@ -241,6 +249,7 @@ main()
   std::cout << "MIOPS : " << (double)REQCNT*1024 / eloop->sim_ns << std::endl;
   std::cout << "RBUF MB : " << RBUF_CAP / 1024 / 1024 << std::endl;
   std::cout << "done_cmd_req : " << done_cmd_req<< std::endl;
+  std::cout << "done_cmd_req pop : " << cmd_req_pop<< std::endl;
   std::cout << "done_nand_read : " << done_nand_read<< std::endl;
   std::cout << "done_nand_read0 : " << done_nand_read0<< std::endl;
   std::cout << "done_nand_ch : " << done_nand_ch<< std::endl;
