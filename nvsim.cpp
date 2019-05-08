@@ -10,22 +10,22 @@
 #define NAND_CH_DONE 5
 #define PCIE_DONE 6
 
-#define QD 128
+#define QD 128*4
 //#define QD 16
 
 #define N_DIE 4
 #define N_CH 16
 
-#define BLK_SIZE (4096)
+#define BLK_SIZE (512*8)
 //#define REQCNT (1024*4*4*4)
-#define REQCNT (128)
+#define REQCNT (128*1024)
 
 #define TRUS (10)
 
 #define NAND_CH_MHZ (1200)
 #define PCIE_LANE (32) // Gen3
 
-#define RBUF_CAP (16 * 1024 * 1024 * 8*2)
+#define RBUF_CAP (16 * 1024 * 1024 * 8*2*2)
 //#define RBUF_CAP (16 * 1024 * 1024*1)
 
 typedef struct {
@@ -47,12 +47,17 @@ public:
 };
 
 
+#define BUF_TH (2)
+
+int full = 0;
 typedef event_t * Event;
 typedef std::queue<Event> dieq_t;
+typedef std::queue<Event> diebuf_q_t;
 typedef std::queue<Event> chq_t;
 typedef std::queue<Event> rbufq_t;
-dieq_t chq[N_CH];
+chq_t chq[N_CH];
 dieq_t dieq[N_CH][N_DIE];
+diebuf_q_t diebuf_q[N_CH][N_DIE];
 int diebuf[N_CH][N_DIE];
 std::vector<Event> diebuf_dep;
 //Event *diebuf_dep[N_CH][N_DIE];
@@ -119,7 +124,9 @@ public:
 	done_cmd_req ++;
       } else if (ev->type == NAND_READ_DONE) {
 	done_nand_read0 ++;
-	die_stat[ev->ch][ev->die] = 0;
+	if (diebuf_q[ev->ch][ev->die].size() < BUF_TH)
+	  die_stat[ev->ch][ev->die] = 0;
+	diebuf_q[ev->ch][ev->die].push(ev);
 	chq[ev->ch].push(ev);
 	done_nand_read ++;
       } else if (ev->type == NAND_CH_DONE) {
@@ -176,13 +183,17 @@ sub()
 	  Event ev = chq[i_ch].front();
 	  if (RBUF_CAP - rbuf_sum > ev->n512 * 512) {
 	    //std::cout << "go " << ev->id << std::endl;
+	    diebuf_q[ev->ch][ev->die].pop();
+	    if (diebuf_q[ev->ch][ev->die].size() < BUF_TH)
+	      die_stat[ev->ch][ev->die] = 0;
 	    ch_stat[i_ch] = 1;
 	    chq[i_ch].pop();
 	    ev->tim = eloop->sim_ns + div_ceil(ev->n512 * 512 * 1000, NAND_CH_MHZ);
 	    ev->type = NAND_CH_DONE;
 	    eloop->add(ev);
 	  } else {
-	    std::cout << "full " << ev->id << std::endl;
+	    //std::cout << "full " << ev->id << std::endl;
+	    full ++;
 	  }
 	}
       }
@@ -215,7 +226,6 @@ next_req()
 int
 main()
 {
-  diebuf_dep.resize(8*4);
   eloop = new Eloop();
 
   for (int qd=0; qd<QD; qd++)
@@ -233,4 +243,5 @@ main()
   std::cout << "done_nand_read0 : " << done_nand_read0<< std::endl;
   std::cout << "done_nand_ch : " << done_nand_ch<< std::endl;
   std::cout << "done_cnt : " << done_cnt<< std::endl;
+  std::cout << "full : " << full<< std::endl;
 }
