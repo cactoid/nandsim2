@@ -14,18 +14,18 @@
 //#define QD 16
 
 #define N_DIE 4
-#define N_CH 16
+#define N_CH 8
 
-#define BLK_SIZE (512*8)
+#define BLK_SIZE (512)
 //#define REQCNT (1024*4*4*4)
-#define REQCNT (128*1024)
+#define REQCNT (128*1024*2)
 
-#define TRUS (10)
+#define TRUS (20)
 
 #define NAND_CH_MHZ (1200)
-#define PCIE_LANE (32) // Gen3
+#define PCIE_LANE (8) // Gen3
 
-#define RBUF_CAP (16 * 1024 * 1024 * 8*2*2)
+#define RBUF_CAP (16ULL * 1024 * 4)
 //#define RBUF_CAP (16 * 1024 * 1024*1)
 
 typedef struct {
@@ -108,7 +108,8 @@ public:
     ev->die = ev->lba % N_DIE;
     ev->ch = (ev->lba / N_DIE) % N_CH;
     //ev->n512 = rand() & 0x1 ? 1 : 8;
-    ev->n512 = BLK_SIZE / 512;
+    ev->n512 = (ev->id % 256 > 128) ? 8 : 1;
+    //ev->n512 = BLK_SIZE / 512;
     add(ev);
   }
   bool run() {
@@ -136,6 +137,7 @@ public:
 	done_nand_ch ++;
       } else if (ev->type == PCIE_DONE) {
 	done_cnt ++;
+	rbuf_sum -= ev->n512 * 512;
 	pcie_stat = 0;
 	if (reqcnt < REQCNT)
 	  next_req();
